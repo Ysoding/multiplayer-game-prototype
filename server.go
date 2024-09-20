@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
 	"log"
 	"math"
 	"math/rand"
@@ -10,29 +13,37 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type MsgType uint8
+
 type Player struct {
-	id            int
-	x             int
-	y             int
+	id            uint32
+	x             float32
+	y             float32
 	conn          *websocket.Conn
 	remoteAddress string
 }
 
-type HelloMsg struct {
-	X   int     `json:"x"`
-	Y   int     `json:"y"`
-	Hue float64 `json:"hue"`
-	ID  int     `json:"id"`
+type HelloMsgStruct struct {
+	x   float32
+	y   float32
+	hue uint8
+	id  uint32
 }
 
 const (
-	worldWidth  = 800
-	worldHeight = 600
-	playerSize  = 30
+	HelloMsg MsgType = iota
 )
 
-var players map[int]*Player
-var idCounter = 0
+const (
+	worldWidth   = 800
+	worldHeight  = 600
+	playerSize   = 30
+	serverFPS    = 60
+	timeInterval = time.Second / serverFPS
+)
+
+var players map[uint32]*Player
+var idCounter uint32 = 0
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -41,12 +52,13 @@ var upgrader = websocket.Upgrader{
 }
 
 func init() {
-	players = make(map[int]*Player)
+	players = make(map[uint32]*Player)
 }
 
 func main() {
 	http.HandleFunc("/", handler)
 
+	go tick()
 	log.Println("Listening to ws://0.0.0.0:6970")
 	if err := http.ListenAndServe(":6970", nil); err != nil {
 		panic(err)
@@ -65,19 +77,16 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	remoteAddr := conn.UnderlyingConn().RemoteAddr().String()
 
 	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
-	x := rnd.Intn(worldWidth - playerSize)
-	y := rnd.Intn(worldHeight - playerSize)
-	hue := math.Floor(rnd.Float64() * 360)
+	x := rnd.Float32() * (worldWidth - playerSize)
+	y := rnd.Float32() * (worldHeight - playerSize)
+	hue := uint8(math.Floor(rnd.Float64() * 360))
 
 	player := NewPlayer(conn, remoteAddr, id, x, y)
 	players[id] = player
 	log.Printf("Player%d connected", id)
 
-	helloMsg := HelloMsg{X: x, Y: y, ID: id, Hue: hue}
-	if err := conn.WriteJSON(helloMsg); err != nil {
-		log.Printf("Player%d send HelloMsg error:%v", id, err)
-		return
-	}
+	helloMsg := HelloMsgStruct{x: x, y: y, id: id, hue: hue}
+	sendMsg(conn, helloMsg)
 
 	for {
 		messageType, p, err := conn.ReadMessage()
@@ -100,13 +109,13 @@ func handleMsg(conn *websocket.Conn, messageType int, msg []byte) {
 
 }
 
-func getNewID() int {
+func getNewID() uint32 {
 	id := idCounter
 	idCounter += 1
 	return id
 }
 
-func NewPlayer(conn *websocket.Conn, remoteAddr string, id, x, y int) *Player {
+func NewPlayer(conn *websocket.Conn, remoteAddr string, id uint32, x, y float32) *Player {
 	return &Player{
 		id:            id,
 		x:             x,
@@ -114,4 +123,40 @@ func NewPlayer(conn *websocket.Conn, remoteAddr string, id, x, y int) *Player {
 		conn:          conn,
 		remoteAddress: remoteAddr,
 	}
+}
+
+func sendMsg(conn *websocket.Conn, data any) {
+	buf := new(bytes.Buffer)
+	err := binary.Write(buf, binary.LittleEndian, data)
+	if err != nil {
+		log.Println("sendMsg binary write error:", err)
+		return
+	}
+
+	err = conn.WriteMessage(websocket.BinaryMessage, buf.Bytes())
+	if err != nil {
+		log.Printf("sendMsg error:%v", err)
+		return
+	}
+}
+
+func tick() {
+	ticker := time.NewTicker(timeInterval)
+	defer ticker.Stop()
+
+	for {
+		start := time.Now()
+
+		time.Sleep(10 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
+
+		elapsed := time.Since(start)
+		sleepDuration := timeInterval - elapsed
+		if sleepDuration > 0 {
+			time.Sleep(sleepDuration)
+		}
+
+		fmt.Printf("Frame time: %v\n", time.Since(start))
+	}
+
 }

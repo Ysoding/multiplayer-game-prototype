@@ -1,3 +1,5 @@
+import { HelloMsg, HelloStruct, Player } from "./interface.mjs";
+
 const WORLD_WIDTH = 800;
 const WORLD_HEIGHT = 600;
 const PLAYER_SIZE = 30;
@@ -31,18 +33,31 @@ const PLAYER_SIZE = 30;
 
   ws.addEventListener("message", (event) => {
     console.log("Received message", event);
+    if (!(event.data instanceof ArrayBuffer)) {
+      console.error(
+        "Received bogus-amogus message from server. Expected binary data",
+        event
+      );
+      ws?.close();
+    }
 
+    const view = new DataView(event.data);
     if (me === undefined) {
-      // init
-      // TODO: check data is correct format
-      const h: HelloMsg = JSON.parse(event.data);
-      me = {
-        id: h.id,
-        x: h.x,
-        y: h.y,
-        hue: h.hue,
-      };
-      players.set(me.id, me);
+      if (HelloStruct.verify(view)) {
+        me = {
+          id: HelloStruct.id.read(view),
+          x: HelloStruct.x.read(view),
+          y: HelloStruct.y.read(view),
+          hue: (HelloStruct.hue.read(view) / 250) * 360,
+        };
+        players.set(me.id, me);
+      } else {
+        console.error(
+          "Received bogus-amogus message from server. Incorrect `Hello` message.",
+          view
+        );
+        ws?.close();
+      }
     }
   });
 
@@ -99,17 +114,3 @@ const PLAYER_SIZE = 30;
     window.requestAnimationFrame(frame);
   });
 })();
-
-interface Player {
-  id: number;
-  x: number;
-  y: number;
-  hue: number;
-}
-
-interface HelloMsg {
-  id: number;
-  x: number;
-  y: number;
-  hue: number;
-}
