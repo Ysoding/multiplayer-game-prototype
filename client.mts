@@ -2,6 +2,7 @@ import {
   HelloStruct,
   Player,
   PlayersJoinedHeaderStruct,
+  PlayersLeftHeaderStruct,
   PlayerStruct,
 } from "./interface.mjs";
 
@@ -88,6 +89,12 @@ const PLAYER_SIZE = 30;
               hue: (PlayerStruct.y.read(playerView) / 256) * 360,
             });
           }
+        }
+      } else if (PlayersLeftHeaderStruct.verify(view)) {
+        const count = PlayersLeftHeaderStruct.count(view);
+        for (let i = 0; i < count; i++) {
+          const id = PlayersLeftHeaderStruct.items(i).id.read(view);
+          players.delete(id);
         }
       } else {
         console.error("Received bogus-amogus message from server.", view);

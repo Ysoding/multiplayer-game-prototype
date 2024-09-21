@@ -23,6 +23,7 @@ const (
 var players map[uint32]*PlayerOnServer
 var idCounter uint32 = 0
 var joinedIDs map[uint32]struct{}
+var leftIDs map[uint32]struct{}
 var mu sync.RWMutex
 
 var upgrader = websocket.Upgrader{
@@ -34,6 +35,7 @@ var upgrader = websocket.Upgrader{
 func init() {
 	players = map[uint32]*PlayerOnServer{}
 	joinedIDs = map[uint32]struct{}{}
+	leftIDs = map[uint32]struct{}{}
 }
 
 func main() {
@@ -93,10 +95,24 @@ func tick() {
 				}
 			}
 		}
+
+		if len(leftIDs) > 0 {
+			// notifying about whom left
+			tmpIDs := make([]uint32, 0, len(players))
+			for id := range leftIDs {
+				tmpIDs = append(tmpIDs, id)
+			}
+			msg := message.NewPlayersLeftMsgStruct(tmpIDs)
+
+			for _, player := range players {
+				player.SendMsg(msg)
+			}
+		}
 		mu.RUnlock()
 
 		mu.Lock()
-		joinedIDs = make(map[uint32]struct{})
+		joinedIDs = map[uint32]struct{}{}
+		leftIDs = map[uint32]struct{}{}
 		mu.Unlock()
 
 		elapsed := time.Since(start)
@@ -202,4 +218,6 @@ func onConnectionClose(id uint32) {
 	mu.Lock()
 	defer mu.Unlock()
 	delete(players, id)
+	delete(joinedIDs, id)
+	leftIDs[id] = struct{}{}
 }

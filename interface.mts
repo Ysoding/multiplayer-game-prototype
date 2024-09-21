@@ -6,6 +6,7 @@ export const FLOAT32_SIZE = 4;
 export enum MessageKind {
   Hello,
   PlayersJoined,
+  PlayersLeft,
 }
 
 export interface Player {
@@ -54,14 +55,34 @@ export const PlayerStruct = (() => {
 export const PlayersJoinedHeaderStruct = (() => {
   const allocator = { size: 0 };
   const kind = allocUint8Field(allocator);
-  const size = allocator.size;
+  const headerSize = allocator.size;
   const itemSize = PlayerStruct.size;
   const verify = (view: DataView) =>
-    view.byteLength >= size &&
-    (view.byteLength - size) % itemSize == 0 &&
+    view.byteLength >= headerSize &&
+    (view.byteLength - headerSize) % itemSize == 0 &&
     kind.read(view) == MessageKind.PlayersJoined;
-  const count = (view: DataView) => (view.byteLength - size) / itemSize;
-  return { kind, size, verify, count };
+  const count = (view: DataView) => (view.byteLength - headerSize) / itemSize;
+  return { kind, size: headerSize, verify, count };
+})();
+
+export const PlayersLeftHeaderStruct = (() => {
+  const allocator = { size: 0 };
+  const kind = allocUint8Field(allocator);
+  const headerSize = allocator.size;
+  const itemSize = UINT32_SIZE;
+  const items = (index: number) => {
+    return {
+      id: {
+        read: (view: DataView) => view.getUint32(headerSize + index * itemSize),
+      },
+    };
+  };
+  const verify = (view: DataView) =>
+    view.byteLength >= headerSize &&
+    (view.byteLength - headerSize) % itemSize == 0 &&
+    kind.read(view) == MessageKind.PlayersLeft;
+  const count = (view: DataView) => (view.byteLength - headerSize) / itemSize;
+  return { kind, size: headerSize, verify, count, items };
 })();
 
 function verifier(
