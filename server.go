@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"encoding/binary"
 	"log"
 	"math"
 	"math/rand"
@@ -21,7 +19,7 @@ const (
 	timeInterval = time.Second / serverFPS
 )
 
-var players map[uint32]*Player
+var players map[uint32]*PlayerOnServer
 var idCounter uint32 = 0
 var joinedIDs map[uint32]struct{}
 
@@ -32,7 +30,7 @@ var upgrader = websocket.Upgrader{
 }
 
 func init() {
-	players = map[uint32]*Player{}
+	players = map[uint32]*PlayerOnServer{}
 	joinedIDs = map[uint32]struct{}{}
 }
 
@@ -55,32 +53,54 @@ func tick() {
 
 		// initialize joined player
 		if len(joinedIDs) > 0 {
+
+			tmpPlayers := make([]message.Player, 0, len(players))
+			for _, player := range players {
+				tmpPlayers = append(tmpPlayers, player.Player)
+			}
+			playersJoinedMsg := message.NewPlayersJoinedMsgStruct(tmpPlayers)
+
 			for id := range joinedIDs {
 				joinedPlayer, ok := players[id]
 				if !ok {
 					continue
 				}
-
-				msg := message.HelloMsgStruct{
-					ID:  joinedPlayer.id,
-					X:   joinedPlayer.x,
-					Y:   joinedPlayer.y,
-					Hue: joinedPlayer.hue,
-				}
-
-				joinedPlayer.SendMsg(msg, message.HelloMsg)
+				helloMsg := message.NewHelloMsgStruct(joinedPlayer.ID, joinedPlayer.X, joinedPlayer.Y, joinedPlayer.Hue)
+				joinedPlayer.SendMsg(helloMsg)
+				joinedPlayer.SendMsg(playersJoinedMsg)
 			}
 		}
 
-		// // notifying old player about who joined
-		// for id, player := range players {
-		// }
+		// notifying old player about who joined
+		{
+			tmpPlayers := make([]message.Player, 0, len(joinedIDs))
+			for id := range joinedIDs {
+				playerJoined, ok := players[id]
+				if !ok {
+					continue
+				}
+				tmpPlayers = append(tmpPlayers, playerJoined.Player)
+			}
+
+			playersJoinedMsg := message.NewPlayersJoinedMsgStruct(tmpPlayers)
+
+			for id, player := range players {
+				if _, ok := joinedIDs[id]; ok { // skip themself
+					continue
+				}
+				player.SendMsg(playersJoinedMsg)
+			}
+		}
+
+		// TODO: mutex
+		joinedIDs = make(map[uint32]struct{})
 
 		elapsed := time.Since(start)
 		sleepDuration := timeInterval - elapsed
 		if sleepDuration > 0 {
 			time.Sleep(sleepDuration)
 		}
+
 	}
 }
 
@@ -98,7 +118,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
 	x := rnd.Float32() * (worldWidth - playerSize)
 	y := rnd.Float32() * (worldHeight - playerSize)
-	hue := uint8(math.Floor(rnd.Float64() * 360))
+	hue := uint8(math.Floor(rnd.Float64()*360) / 360 * 256)
 
 	player := NewPlayer(conn, remoteAddr, id, x, y, hue)
 	players[id] = player
@@ -109,8 +129,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		messageType, p, err := conn.ReadMessage()
 		if err != nil {
 			log.Printf("Player%d ReadMessage error:%v", id, err)
-			// TODO: mutex
-			delete(joinedIDs, id)
+			onClose(id)
 			break
 		}
 
@@ -125,7 +144,6 @@ func handleMsg(conn *websocket.Conn, messageType int, msg []byte) {
 		log.Println(err)
 		return
 	}
-
 }
 
 func getNewID() uint32 {
@@ -134,45 +152,45 @@ func getNewID() uint32 {
 	return id
 }
 
-type Player struct {
-	id            uint32
-	x             float32
-	y             float32
-	hue           uint8
+type PlayerOnServer struct {
+	message.Player
 	conn          *websocket.Conn
 	remoteAddress string
 }
 
-func NewPlayer(conn *websocket.Conn, remoteAddr string, id uint32, x, y float32, hue uint8) *Player {
-	return &Player{
-		id:            id,
-		x:             x,
-		y:             y,
+func NewPlayer(conn *websocket.Conn, remoteAddr string, id uint32, x, y float32, hue uint8) *PlayerOnServer {
+	return &PlayerOnServer{
+		Player: message.Player{
+			ID:  id,
+			X:   x,
+			Y:   y,
+			Hue: hue,
+		},
 		conn:          conn,
 		remoteAddress: remoteAddr,
-		hue:           hue,
 	}
 }
 
-func (p *Player) SendMsg(msg any, typ message.MsgType) {
-	// kind		data msg struct
-	// 1byte       any
-	buf := new(bytes.Buffer)
-	buf.WriteByte(byte(typ))
-
-	err := binary.Write(buf, binary.BigEndian, msg)
-	if err != nil {
-		log.Println("sendMsg binary write error:", err)
-		return
-	}
-
-	err = p.conn.WriteMessage(websocket.BinaryMessage, buf.Bytes())
+func (p *PlayerOnServer) SendMsgWithData(data []byte) {
+	err := p.conn.WriteMessage(websocket.BinaryMessage, data)
 	if err != nil {
 		if websocket.IsUnexpectedCloseError(err, websocket.CloseMessage) {
-			// TODO: mutex
-			delete(joinedIDs, p.id)
+			onClose(p.ID)
 		}
-		log.Printf("sendMsg error:%v", err)
+		log.Printf("SendMsgWithData error:%v", err)
 		return
 	}
+}
+
+func (p *PlayerOnServer) SendMsg(msg message.Msg) {
+	bytes, err := msg.Encode()
+	if err != nil {
+		log.Printf("SendMsg error: %v", err)
+	}
+	p.SendMsgWithData(bytes)
+}
+
+func onClose(id uint32) {
+	// TODO: mutex?
+	delete(players, id)
 }

@@ -5,6 +5,7 @@ export const FLOAT32_SIZE = 4;
 
 export enum MessageKind {
   Hello,
+  PlayersJoined,
 }
 
 export interface Player {
@@ -45,6 +46,29 @@ export const HelloStruct = (() => {
     size,
     verify,
   };
+})();
+
+export const PlayerStruct = (() => {
+  const allocator = { size: 0 };
+  const id = allocUint32Field(allocator);
+  const x = allocFloat32Field(allocator);
+  const y = allocFloat32Field(allocator);
+  const hue = allocUint8Field(allocator);
+  const size = allocator.size;
+  return { id, x, y, hue, size };
+})();
+
+export const PlayersJoinedHeaderStruct = (() => {
+  const allocator = { size: 0 };
+  const kind = allocUint8Field(allocator);
+  const size = allocator.size;
+  const itemSize = PlayerStruct.size;
+  const verify = (view: DataView) =>
+    view.byteLength >= size &&
+    (view.byteLength - size) % itemSize == 0 &&
+    kind.read(view) == MessageKind.PlayersJoined;
+  const count = (view: DataView) => (view.byteLength - size) / itemSize;
+  return { kind, size, verify, count };
 })();
 
 function verifier(

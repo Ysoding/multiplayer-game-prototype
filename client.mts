@@ -1,4 +1,10 @@
-import { HelloMsg, HelloStruct, Player } from "./interface.mjs";
+import {
+  HelloMsg,
+  HelloStruct,
+  Player,
+  PlayersJoinedHeaderStruct,
+  PlayerStruct,
+} from "./interface.mjs";
 
 const WORLD_WIDTH = 800;
 const WORLD_HEIGHT = 600;
@@ -50,7 +56,7 @@ const PLAYER_SIZE = 30;
           id: HelloStruct.id.read(view),
           x: HelloStruct.x.read(view),
           y: HelloStruct.y.read(view),
-          hue: (HelloStruct.hue.read(view) / 250) * 360,
+          hue: (HelloStruct.hue.read(view) / 256) * 360,
         };
         players.set(me.id, me);
       } else {
@@ -58,6 +64,34 @@ const PLAYER_SIZE = 30;
           "Received bogus-amogus message from server. Incorrect `Hello` message.",
           view
         );
+        ws?.close();
+      }
+    } else {
+      if (PlayersJoinedHeaderStruct.verify(view)) {
+        const count = PlayersJoinedHeaderStruct.count(view);
+        for (let i = 0; i < count; i++) {
+          const playerView = new DataView(
+            event.data,
+            PlayersJoinedHeaderStruct.size + i * PlayerStruct.size,
+            PlayerStruct.size
+          );
+          const id = PlayerStruct.id.read(playerView);
+          const player = players.get(id);
+          if (player !== undefined) {
+            player.x = PlayerStruct.x.read(playerView);
+            player.y = PlayerStruct.y.read(playerView);
+            player.hue = (PlayerStruct.y.read(playerView) / 256) * 360;
+          } else {
+            players.set(id, {
+              id,
+              x: PlayerStruct.x.read(playerView),
+              y: PlayerStruct.y.read(playerView),
+              hue: (PlayerStruct.y.read(playerView) / 256) * 360,
+            });
+          }
+        }
+      } else {
+        console.error("Received bogus-amogus message from server.", view);
         ws?.close();
       }
     }
