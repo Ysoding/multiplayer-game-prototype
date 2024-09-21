@@ -18,6 +18,8 @@ const PLAYER_SIZE = 30;
   let ws: WebSocket | undefined = new WebSocket(
     `ws://${window.location.hostname}:6970`
   );
+  ws.binaryType = "arraybuffer";
+
   let players = new Map<number, Player>();
   let me: Player | undefined = undefined;
 
