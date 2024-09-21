@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"math"
 	"math/rand"
@@ -96,8 +97,8 @@ func tick() {
 			}
 		}
 
+		// notifying about whom left
 		if len(leftIDs) > 0 {
-			// notifying about whom left
 			tmpIDs := make([]uint32, 0, len(players))
 			for id := range leftIDs {
 				tmpIDs = append(tmpIDs, id)
@@ -108,6 +109,10 @@ func tick() {
 				player.SendMsg(msg)
 			}
 		}
+
+		// notifying about moving player
+		// TODO:
+
 		mu.RUnlock()
 
 		mu.Lock()
@@ -152,21 +157,12 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	for {
 		messageType, p, err := conn.ReadMessage()
 		if err != nil {
-			log.Printf("Player%d ReadMessage error:%v", id, err)
+			log.Printf("Player%d ReadMessage %d error:%v", id, messageType, err)
 			onConnectionClose(id)
 			break
 		}
 
-		go handleMsg(conn, messageType, p)
-	}
-}
-
-func handleMsg(conn *websocket.Conn, messageType int, msg []byte) {
-	log.Printf("processing msg: %s", msg)
-
-	if err := conn.WriteMessage(messageType, msg); err != nil {
-		log.Println(err)
-		return
+		go player.handleMsg(messageType, p)
 	}
 }
 
@@ -180,6 +176,7 @@ type PlayerOnServer struct {
 	message.Player
 	conn          *websocket.Conn
 	remoteAddress string
+	newMoving     uint8
 }
 
 func NewPlayer(conn *websocket.Conn, remoteAddr string, id uint32, x, y float32, hue uint8) *PlayerOnServer {
@@ -212,6 +209,25 @@ func (p *PlayerOnServer) SendMsg(msg message.Msg) {
 		log.Printf("SendMsg error: %v", err)
 	}
 	p.SendMsgWithData(bytes)
+}
+
+func (p *PlayerOnServer) handleMsg(messageType int, data []byte) {
+	if messageType != websocket.BinaryMessage {
+		return
+	}
+
+	log.Printf("processing msg: %v", data)
+
+	msg := message.AmmaMovingMsgStruct{}
+	if err := msg.Decode(data); err == nil {
+		if msg.Start == 1 {
+			p.newMoving |= (1 << msg.Direction)
+		}
+	} else {
+		fmt.Printf("received bogus-amogus message from player %d", p.ID)
+		p.conn.Close()
+		return
+	}
 }
 
 func onConnectionClose(id uint32) {

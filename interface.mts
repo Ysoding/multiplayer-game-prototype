@@ -3,10 +3,18 @@ export const UINT16_SIZE = 2;
 export const UINT32_SIZE = 4;
 export const FLOAT32_SIZE = 4;
 
+export enum Direction {
+  Left = 0,
+  Right,
+  Up,
+  Down,
+}
+
 export enum MessageKind {
   Hello,
   PlayersJoined,
   PlayersLeft,
+  AmmaMoving,
 }
 
 export interface Player {
@@ -20,6 +28,7 @@ interface Field {
   offset: number;
   size: number;
   read(view: DataView): number;
+  write(view: DataView, value: number): void;
 }
 
 export const HelloStruct = (() => {
@@ -32,7 +41,6 @@ export const HelloStruct = (() => {
   const size = allocator.size;
   const verify = verifier(kind, MessageKind.Hello, size);
   return {
-    kind,
     id,
     x,
     y,
@@ -48,8 +56,9 @@ export const PlayerStruct = (() => {
   const x = allocFloat32Field(allocator);
   const y = allocFloat32Field(allocator);
   const hue = allocUint8Field(allocator);
+  const moving = allocUint8Field(allocator);
   const size = allocator.size;
-  return { id, x, y, hue, size };
+  return { id, x, y, hue, size, moving };
 })();
 
 export const PlayersJoinedHeaderStruct = (() => {
@@ -73,7 +82,8 @@ export const PlayersLeftHeaderStruct = (() => {
   const items = (index: number) => {
     return {
       id: {
-        read: (view: DataView) => view.getUint32(headerSize + index * itemSize),
+        read: (view: DataView) =>
+          view.getUint32(headerSize + index * itemSize, true),
       },
     };
   };
@@ -83,6 +93,16 @@ export const PlayersLeftHeaderStruct = (() => {
     kind.read(view) == MessageKind.PlayersLeft;
   const count = (view: DataView) => (view.byteLength - headerSize) / itemSize;
   return { kind, size: headerSize, verify, count, items };
+})();
+
+export const AmmaMovingStruct = (() => {
+  const allocator = { size: 0 };
+  const kind = allocUint8Field(allocator);
+  const direction = allocUint8Field(allocator);
+  const start = allocUint8Field(allocator);
+  const size = allocator.size;
+  const verify = verifier(kind, MessageKind.AmmaMoving, size);
+  return { kind, direction, size, verify, start };
 })();
 
 function verifier(
@@ -101,6 +121,7 @@ function allocUint8Field(allocator: { size: number }): Field {
     offset,
     size,
     read: (view) => view.getUint8(offset),
+    write: (view, value) => view.setUint8(offset, value),
   };
 }
 
@@ -111,7 +132,8 @@ function allocUint16Field(allocator: { size: number }): Field {
   return {
     offset,
     size,
-    read: (view) => view.getUint16(offset),
+    read: (view) => view.getUint16(offset, true),
+    write: (view, value) => view.setUint16(offset, value, true),
   };
 }
 
@@ -122,7 +144,8 @@ function allocUint32Field(allocator: { size: number }): Field {
   return {
     offset,
     size,
-    read: (view) => view.getUint32(offset),
+    read: (view) => view.getUint32(offset, true),
+    write: (view, value) => view.setUint32(offset, value, true),
   };
 }
 
@@ -133,6 +156,7 @@ function allocFloat32Field(allocator: { size: number }): Field {
   return {
     offset,
     size,
-    read: (view) => view.getFloat32(offset),
+    read: (view) => view.getFloat32(offset, true),
+    write: (view, value) => view.setFloat32(offset, value, true),
   };
 }

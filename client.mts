@@ -1,5 +1,8 @@
 import {
+  AmmaMovingStruct,
+  Direction,
   HelloStruct,
+  MessageKind,
   Player,
   PlayersJoinedHeaderStruct,
   PlayersLeftHeaderStruct,
@@ -9,6 +12,17 @@ import {
 const WORLD_WIDTH = 800;
 const WORLD_HEIGHT = 600;
 const PLAYER_SIZE = 30;
+
+const DIRECTION_KEYS: { [key: string]: Direction } = {
+  ArrowLeft: Direction.Left,
+  ArrowRight: Direction.Right,
+  ArrowUp: Direction.Up,
+  ArrowDown: Direction.Down,
+  KeyA: Direction.Left,
+  KeyD: Direction.Right,
+  KeyW: Direction.Up,
+  KeyS: Direction.Down,
+};
 
 (async () => {
   const gameCanvas = document.getElementById(
@@ -154,5 +168,37 @@ const PLAYER_SIZE = 30;
   window.requestAnimationFrame((timestamp: number) => {
     previousTimestamp = timestamp;
     window.requestAnimationFrame(frame);
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (ws !== undefined && me !== undefined) {
+      if (!e.repeat) {
+        const direction = DIRECTION_KEYS[e.code];
+        if (direction !== undefined) {
+          const view = new DataView(new ArrayBuffer(AmmaMovingStruct.size));
+          AmmaMovingStruct.kind.write(view, MessageKind.AmmaMoving);
+          AmmaMovingStruct.direction.write(view, direction);
+          AmmaMovingStruct.start.write(view, 1);
+          console.log(view.buffer);
+          ws.send(view.buffer);
+        }
+      }
+    }
+  });
+
+  window.addEventListener("keyup", (e) => {
+    // if (ws !== undefined && me !== undefined) {
+    //   if (!e.repeat) {
+    //     const direction = DIRECTION_KEYS[e.code];
+    //     if (direction !== undefined) {
+    //       const view = new DataView(new ArrayBuffer(AmmaMovingStruct.size));
+    //       AmmaMovingStruct.kind.write(view, MessageKind.AmmaMoving);
+    //       AmmaMovingStruct.direction.write(view, direction);
+    //       AmmaMovingStruct.start.write(view, 1);
+    //       console.log(view);
+    //       ws.send(view.buffer);
+    //     }
+    //   }
+    // }
   });
 })();
