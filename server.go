@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -22,6 +23,7 @@ const (
 var players map[uint32]*PlayerOnServer
 var idCounter uint32 = 0
 var joinedIDs map[uint32]struct{}
+var mu sync.RWMutex
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -51,9 +53,9 @@ func tick() {
 	for {
 		start := time.Now()
 
+		mu.RLock()
 		// initialize joined player
 		if len(joinedIDs) > 0 {
-
 			tmpPlayers := make([]message.Player, 0, len(players))
 			for _, player := range players {
 				tmpPlayers = append(tmpPlayers, player.Player)
@@ -69,31 +71,33 @@ func tick() {
 				joinedPlayer.SendMsg(helloMsg)
 				joinedPlayer.SendMsg(playersJoinedMsg)
 			}
-		}
 
-		// notifying old player about who joined
-		{
-			tmpPlayers := make([]message.Player, 0, len(joinedIDs))
-			for id := range joinedIDs {
-				playerJoined, ok := players[id]
-				if !ok {
-					continue
+			// notifying old player about who joined
+			{
+				tmpPlayers := make([]message.Player, 0, len(joinedIDs))
+				for id := range joinedIDs {
+					playerJoined, ok := players[id]
+					if !ok {
+						continue
+					}
+					tmpPlayers = append(tmpPlayers, playerJoined.Player)
 				}
-				tmpPlayers = append(tmpPlayers, playerJoined.Player)
-			}
 
-			playersJoinedMsg := message.NewPlayersJoinedMsgStruct(tmpPlayers)
+				playersJoinedMsg := message.NewPlayersJoinedMsgStruct(tmpPlayers)
 
-			for id, player := range players {
-				if _, ok := joinedIDs[id]; ok { // skip themself
-					continue
+				for id, player := range players {
+					if _, ok := joinedIDs[id]; ok { // skip self
+						continue
+					}
+					player.SendMsg(playersJoinedMsg)
 				}
-				player.SendMsg(playersJoinedMsg)
 			}
 		}
+		mu.RUnlock()
 
-		// TODO: mutex
+		mu.Lock()
 		joinedIDs = make(map[uint32]struct{})
+		mu.Unlock()
 
 		elapsed := time.Since(start)
 		sleepDuration := timeInterval - elapsed
@@ -121,15 +125,19 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	hue := uint8(math.Floor(rnd.Float64()*360) / 360 * 256)
 
 	player := NewPlayer(conn, remoteAddr, id, x, y, hue)
+
+	mu.Lock()
 	players[id] = player
 	joinedIDs[id] = struct{}{}
+	mu.Unlock()
+
 	log.Printf("Player%d connected", id)
 
 	for {
 		messageType, p, err := conn.ReadMessage()
 		if err != nil {
 			log.Printf("Player%d ReadMessage error:%v", id, err)
-			onClose(id)
+			onConnectionClose(id)
 			break
 		}
 
@@ -175,7 +183,7 @@ func (p *PlayerOnServer) SendMsgWithData(data []byte) {
 	err := p.conn.WriteMessage(websocket.BinaryMessage, data)
 	if err != nil {
 		if websocket.IsUnexpectedCloseError(err, websocket.CloseMessage) {
-			onClose(p.ID)
+			onConnectionClose(p.ID)
 		}
 		log.Printf("SendMsgWithData error:%v", err)
 		return
@@ -190,7 +198,8 @@ func (p *PlayerOnServer) SendMsg(msg message.Msg) {
 	p.SendMsgWithData(bytes)
 }
 
-func onClose(id uint32) {
-	// TODO: mutex?
+func onConnectionClose(id uint32) {
+	mu.Lock()
+	defer mu.Unlock()
 	delete(players, id)
 }

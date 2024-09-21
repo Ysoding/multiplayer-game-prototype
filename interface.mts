@@ -15,13 +15,6 @@ export interface Player {
   hue: number;
 }
 
-export interface HelloMsg {
-  id: number;
-  x: number;
-  y: number;
-  hue: number;
-}
-
 interface Field {
   offset: number;
   size: number;
