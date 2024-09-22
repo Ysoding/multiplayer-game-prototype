@@ -13,12 +13,23 @@ import (
 	"github.com/ysoding/multiplayer-game-prototype/message"
 )
 
+type Direction uint8
+
 const (
-	worldWidth   = 800
-	worldHeight  = 600
-	playerSize   = 30
-	serverFPS    = 60
-	timeInterval = time.Second / serverFPS
+	Left Direction = iota
+	Right
+	Up
+	Down
+)
+
+const (
+	directionCount = 4
+	worldWidth     = 800
+	worldHeight    = 600
+	playerSpeed    = 500
+	playerSize     = 30
+	serverFPS      = 60
+	timeInterval   = time.Second / serverFPS
 )
 
 var players map[uint32]*PlayerOnServer
@@ -26,6 +37,7 @@ var idCounter uint32 = 0
 var joinedIDs map[uint32]struct{}
 var leftIDs map[uint32]struct{}
 var mu sync.RWMutex
+var directions [][]int // Left: {x:-1, y: 0}
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -37,6 +49,12 @@ func init() {
 	players = map[uint32]*PlayerOnServer{}
 	joinedIDs = map[uint32]struct{}{}
 	leftIDs = map[uint32]struct{}{}
+
+	directions = make([][]int, directionCount)
+	directions[Left] = []int{-1, 0}
+	directions[Right] = []int{1, 0}
+	directions[Up] = []int{0, -1}
+	directions[Down] = []int{0, 1}
 }
 
 func main() {
@@ -50,11 +68,11 @@ func main() {
 }
 
 func tick() {
-	ticker := time.NewTicker(timeInterval)
-	defer ticker.Stop()
-
+	previousTime := time.Now()
 	for {
-		start := time.Now()
+		startTime := time.Now()
+		deltaTimeSeconds := startTime.Sub(previousTime).Seconds()
+		previousTime = startTime
 
 		mu.RLock()
 		// initialize joined player
@@ -71,8 +89,8 @@ func tick() {
 					continue
 				}
 				helloMsg := message.NewHelloMsgStruct(joinedPlayer.ID, joinedPlayer.X, joinedPlayer.Y, joinedPlayer.Hue)
-				joinedPlayer.SendMsg(helloMsg)
-				joinedPlayer.SendMsg(playersJoinedMsg)
+				joinedPlayer.sendMsg(helloMsg)
+				joinedPlayer.sendMsg(playersJoinedMsg)
 			}
 
 			// notifying old player about who joined
@@ -92,27 +110,55 @@ func tick() {
 					if _, ok := joinedIDs[id]; ok { // skip self
 						continue
 					}
-					player.SendMsg(playersJoinedMsg)
+					player.sendMsg(playersJoinedMsg)
 				}
 			}
 		}
 
 		// notifying about whom left
-		if len(leftIDs) > 0 {
-			tmpIDs := make([]uint32, 0, len(players))
-			for id := range leftIDs {
-				tmpIDs = append(tmpIDs, id)
-			}
-			msg := message.NewPlayersLeftMsgStruct(tmpIDs)
+		{
+			if len(leftIDs) > 0 {
+				tmpIDs := make([]uint32, 0, len(players))
+				for id := range leftIDs {
+					tmpIDs = append(tmpIDs, id)
+				}
+				msg := message.NewPlayersLeftMsgStruct(tmpIDs)
 
-			for _, player := range players {
-				player.SendMsg(msg)
+				for _, player := range players {
+					player.sendMsg(msg)
+				}
 			}
 		}
 
 		// notifying about moving player
-		// TODO:
+		{
+			cnt := 0
+			for _, player := range players {
+				if player.newMoving != player.Moving {
+					cnt++
+				}
+			}
 
+			if cnt > 0 {
+				tmpPlayers := make([]message.Player, 0)
+				for _, player := range players {
+					if player.newMoving != player.Moving {
+						player.Moving = player.newMoving
+						tmpPlayers = append(tmpPlayers, player.Player)
+					}
+				}
+
+				msg := message.NewPlayersMovingMsgStruct(tmpPlayers)
+				for _, player := range players {
+					player.sendMsg(msg)
+				}
+			}
+		}
+
+		// update player state
+		for _, player := range players {
+			go player.update(deltaTimeSeconds)
+		}
 		mu.RUnlock()
 
 		mu.Lock()
@@ -120,12 +166,11 @@ func tick() {
 		leftIDs = map[uint32]struct{}{}
 		mu.Unlock()
 
-		elapsed := time.Since(start)
+		elapsed := time.Since(startTime)
 		sleepDuration := timeInterval - elapsed
 		if sleepDuration > 0 {
 			time.Sleep(sleepDuration)
 		}
-
 	}
 }
 
@@ -152,12 +197,12 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	joinedIDs[id] = struct{}{}
 	mu.Unlock()
 
-	log.Printf("Player%d connected", id)
+	log.Printf("Player%d connected\n", id)
 
 	for {
 		messageType, p, err := conn.ReadMessage()
 		if err != nil {
-			log.Printf("Player%d ReadMessage %d error:%v", id, messageType, err)
+			log.Printf("Player%d ReadMessage %d error:%v\n", id, messageType, err)
 			onConnectionClose(id)
 			break
 		}
@@ -182,49 +227,69 @@ type PlayerOnServer struct {
 func NewPlayer(conn *websocket.Conn, remoteAddr string, id uint32, x, y float32, hue uint8) *PlayerOnServer {
 	return &PlayerOnServer{
 		Player: message.Player{
-			ID:  id,
-			X:   x,
-			Y:   y,
-			Hue: hue,
+			ID:     id,
+			X:      x,
+			Y:      y,
+			Hue:    hue,
+			Moving: 0,
 		},
 		conn:          conn,
 		remoteAddress: remoteAddr,
+		newMoving:     0,
 	}
 }
 
-func (p *PlayerOnServer) SendMsgWithData(data []byte) {
+func (p *PlayerOnServer) sendMsgWithData(data []byte) {
 	err := p.conn.WriteMessage(websocket.BinaryMessage, data)
 	if err != nil {
 		if websocket.IsUnexpectedCloseError(err, websocket.CloseMessage) {
 			onConnectionClose(p.ID)
 		}
-		log.Printf("SendMsgWithData error:%v", err)
+		log.Printf("SendMsgWithData error:%v\n", err)
 		return
 	}
 }
 
-func (p *PlayerOnServer) SendMsg(msg message.Msg) {
+func (p *PlayerOnServer) sendMsg(msg message.Msg) {
 	bytes, err := msg.Encode()
 	if err != nil {
-		log.Printf("SendMsg error: %v", err)
+		log.Printf("SendMsg error: %v\n", err)
 	}
-	p.SendMsgWithData(bytes)
+	p.sendMsgWithData(bytes)
+}
+
+func (p *PlayerOnServer) update(deltaTime float64) {
+	dx := 0
+	dy := 0
+	for dir := 0; dir < directionCount; dir++ {
+		if ((p.Moving >> dir) & 1) != 0 {
+			dx += directions[dir][0]
+			dy += directions[dir][1]
+		}
+	}
+	l := dx*dx + dy*dy
+	if l != 0 {
+		p.X += float32(float64(dx) / float64(l) * deltaTime * playerSpeed)
+		p.Y += float32(float64(dy) / float64(l) * deltaTime * playerSpeed)
+	}
 }
 
 func (p *PlayerOnServer) handleMsg(messageType int, data []byte) {
 	if messageType != websocket.BinaryMessage {
+		log.Println("received not BinaryMessage")
 		return
 	}
 
-	log.Printf("processing msg: %v", data)
-
 	msg := message.AmmaMovingMsgStruct{}
 	if err := msg.Decode(data); err == nil {
+		log.Printf("processing AmmaMovingMsg: %v\n", msg)
 		if msg.Start == 1 {
 			p.newMoving |= (1 << msg.Direction)
+		} else {
+			p.newMoving &= ^(1 << msg.Direction)
 		}
 	} else {
-		fmt.Printf("received bogus-amogus message from player %d", p.ID)
+		fmt.Printf("received bogus-amogus message from player %d\n", p.ID)
 		p.conn.Close()
 		return
 	}

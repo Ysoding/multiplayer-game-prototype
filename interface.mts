@@ -14,6 +14,7 @@ export enum MessageKind {
   Hello,
   PlayersJoined,
   PlayersLeft,
+  PlayersMoving,
   AmmaMoving,
 }
 
@@ -22,6 +23,7 @@ export interface Player {
   x: number;
   y: number;
   hue: number;
+  moving: number;
 }
 
 interface Field {
@@ -71,7 +73,7 @@ export const PlayersJoinedHeaderStruct = (() => {
     (view.byteLength - headerSize) % itemSize == 0 &&
     kind.read(view) == MessageKind.PlayersJoined;
   const count = (view: DataView) => (view.byteLength - headerSize) / itemSize;
-  return { kind, size: headerSize, verify, count };
+  return { kind, headerSize, verify, count };
 })();
 
 export const PlayersLeftHeaderStruct = (() => {
@@ -92,7 +94,7 @@ export const PlayersLeftHeaderStruct = (() => {
     (view.byteLength - headerSize) % itemSize == 0 &&
     kind.read(view) == MessageKind.PlayersLeft;
   const count = (view: DataView) => (view.byteLength - headerSize) / itemSize;
-  return { kind, size: headerSize, verify, count, items };
+  return { kind, headerSize, verify, count, items };
 })();
 
 export const AmmaMovingStruct = (() => {
@@ -103,6 +105,19 @@ export const AmmaMovingStruct = (() => {
   const size = allocator.size;
   const verify = verifier(kind, MessageKind.AmmaMoving, size);
   return { kind, direction, size, verify, start };
+})();
+
+export const PlayersMovingHeaderStruct = (() => {
+  const allocator = { size: 0 };
+  const kind = allocUint8Field(allocator);
+  const headerSize = allocator.size;
+  const itemSize = PlayerStruct.size;
+  const verify = (view: DataView) =>
+    view.byteLength >= headerSize &&
+    (view.byteLength - headerSize) % itemSize == 0 &&
+    kind.read(view) == MessageKind.PlayersMoving;
+  const count = (view: DataView) => (view.byteLength - headerSize) / itemSize;
+  return { kind, headerSize, verify, count };
 })();
 
 function verifier(

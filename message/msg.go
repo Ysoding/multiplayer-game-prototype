@@ -3,6 +3,7 @@ package message
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 )
 
@@ -10,13 +11,15 @@ type Msg interface {
 	// kind		data msg struct
 	// 1byte       any
 	Encode() ([]byte, error)
+	Decode(data []byte) error
 }
 
 const (
 	HelloMsg MsgType = iota
 	PlayersJoinedMsg
 	PlayersLeftMsg
-	AmmaMoving
+	PlayersMovingMsg
+	AmmaMovingMsg
 )
 
 type MsgType uint8
@@ -48,6 +51,10 @@ func (h *HelloMsgStruct) Encode() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+func (h *HelloMsgStruct) Decode(data []byte) error {
+	return errors.New("`HelloMsg` only client msg")
+}
+
 type Player struct {
 	ID     uint32
 	X      float32
@@ -72,6 +79,10 @@ func (p *PlayersJoinedMsgStruct) Encode() ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+func (h *PlayersJoinedMsgStruct) Decode(data []byte) error {
+	return errors.New("`PlayersJoinedMsgStruct` only client msg")
 }
 
 func NewPlayersJoinedMsgStruct(players []Player) Msg {
@@ -100,6 +111,10 @@ func NewPlayersLeftMsgStruct(playerIDs []uint32) Msg {
 	return &PlayersLeftMsgStruct{playerIDs: playerIDs}
 }
 
+func (h *PlayersLeftMsgStruct) Decode(data []byte) error {
+	return errors.New("`PlayersLeftMsgStruct` only client msg")
+}
+
 type AmmaMovingMsgStruct struct {
 	Direction uint8
 	Start     uint8
@@ -109,7 +124,7 @@ func (a *AmmaMovingMsgStruct) Encode() ([]byte, error) {
 	buf := new(bytes.Buffer)
 	buf.WriteByte(byte(PlayersLeftMsg))
 
-	err := binary.Write(buf, binary.LittleEndian, AmmaMoving)
+	err := binary.Write(buf, binary.LittleEndian, AmmaMovingMsg)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +151,7 @@ func (a *AmmaMovingMsgStruct) Decode(data []byte) error {
 		return err
 	}
 
-	if kind != uint8(AmmaMoving) {
+	if kind != uint8(AmmaMovingMsg) {
 		return fmt.Errorf("msg type not AmmaMoving: %d", kind)
 	}
 
@@ -151,4 +166,30 @@ func (a *AmmaMovingMsgStruct) Decode(data []byte) error {
 	}
 
 	return nil
+}
+
+type PlayersMovingMsgStruct struct {
+	players []Player
+}
+
+func NewPlayersMovingMsgStruct(players []Player) Msg {
+	return &PlayersMovingMsgStruct{players: players}
+}
+
+func (p *PlayersMovingMsgStruct) Encode() ([]byte, error) {
+	buf := new(bytes.Buffer)
+	buf.WriteByte(byte(PlayersMovingMsg))
+
+	for _, player := range p.players {
+		err := binary.Write(buf, binary.LittleEndian, player)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return buf.Bytes(), nil
+}
+
+func (p *PlayersMovingMsgStruct) Decode(data []byte) error {
+	return errors.New("`PlayersMovingMsgStruct` only client msg")
 }

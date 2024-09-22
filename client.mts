@@ -6,6 +6,7 @@ import {
   Player,
   PlayersJoinedHeaderStruct,
   PlayersLeftHeaderStruct,
+  PlayersMovingHeaderStruct,
   PlayerStruct,
 } from "./interface.mjs";
 
@@ -71,6 +72,7 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
           x: HelloStruct.x.read(view),
           y: HelloStruct.y.read(view),
           hue: (HelloStruct.hue.read(view) / 256) * 360,
+          moving: 0,
         };
         players.set(me.id, me);
       } else {
@@ -86,7 +88,7 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
         for (let i = 0; i < count; i++) {
           const playerView = new DataView(
             event.data,
-            PlayersJoinedHeaderStruct.size + i * PlayerStruct.size,
+            PlayersJoinedHeaderStruct.headerSize + i * PlayerStruct.size,
             PlayerStruct.size
           );
           const id = PlayerStruct.id.read(playerView);
@@ -95,12 +97,14 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
             player.x = PlayerStruct.x.read(playerView);
             player.y = PlayerStruct.y.read(playerView);
             player.hue = (PlayerStruct.y.read(playerView) / 256) * 360;
+            player.moving = PlayerStruct.moving.read(playerView);
           } else {
             players.set(id, {
               id,
               x: PlayerStruct.x.read(playerView),
               y: PlayerStruct.y.read(playerView),
               hue: (PlayerStruct.y.read(playerView) / 256) * 360,
+              moving: PlayerStruct.moving.read(playerView),
             });
           }
         }
@@ -109,6 +113,28 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
         for (let i = 0; i < count; i++) {
           const id = PlayersLeftHeaderStruct.items(i).id.read(view);
           players.delete(id);
+        }
+      } else if (PlayersMovingHeaderStruct.verify(view)) {
+        const count = PlayersMovingHeaderStruct.count(view);
+        for (let i = 0; i < count; i++) {
+          const playerView = new DataView(
+            event.data,
+            PlayersMovingHeaderStruct.headerSize + i * PlayerStruct.size,
+            PlayerStruct.size
+          );
+          const id = PlayerStruct.id.read(playerView);
+          const player = players.get(id);
+          if (player === undefined) {
+            console.error(
+              `Received bogus-amogus message from server. player ${id} didn't exists`,
+              view
+            );
+            ws?.close();
+            return;
+          }
+          player.moving = PlayerStruct.moving.read(playerView);
+          player.x = PlayerStruct.x.read(playerView);
+          player.y = PlayerStruct.y.read(playerView);
         }
       } else {
         console.error("Received bogus-amogus message from server.", view);
@@ -187,18 +213,18 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
   });
 
   window.addEventListener("keyup", (e) => {
-    // if (ws !== undefined && me !== undefined) {
-    //   if (!e.repeat) {
-    //     const direction = DIRECTION_KEYS[e.code];
-    //     if (direction !== undefined) {
-    //       const view = new DataView(new ArrayBuffer(AmmaMovingStruct.size));
-    //       AmmaMovingStruct.kind.write(view, MessageKind.AmmaMoving);
-    //       AmmaMovingStruct.direction.write(view, direction);
-    //       AmmaMovingStruct.start.write(view, 1);
-    //       console.log(view);
-    //       ws.send(view.buffer);
-    //     }
-    //   }
-    // }
+    if (ws !== undefined && me !== undefined) {
+      if (!e.repeat) {
+        const direction = DIRECTION_KEYS[e.code];
+        if (direction !== undefined) {
+          const view = new DataView(new ArrayBuffer(AmmaMovingStruct.size));
+          AmmaMovingStruct.kind.write(view, MessageKind.AmmaMoving);
+          AmmaMovingStruct.direction.write(view, direction);
+          AmmaMovingStruct.start.write(view, 0);
+          console.log(view);
+          ws.send(view.buffer);
+        }
+      }
+    }
   });
 })();
