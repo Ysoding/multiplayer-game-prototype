@@ -96,14 +96,14 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
           if (player !== undefined) {
             player.x = PlayerStruct.x.read(playerView);
             player.y = PlayerStruct.y.read(playerView);
-            player.hue = (PlayerStruct.y.read(playerView) / 256) * 360;
+            player.hue = (PlayerStruct.hue.read(playerView) / 256) * 360;
             player.moving = PlayerStruct.moving.read(playerView);
           } else {
             players.set(id, {
               id,
               x: PlayerStruct.x.read(playerView),
               y: PlayerStruct.y.read(playerView),
-              hue: (PlayerStruct.y.read(playerView) / 256) * 360,
+              hue: (PlayerStruct.hue.read(playerView) / 256) * 360,
               moving: PlayerStruct.moving.read(playerView),
             });
           }

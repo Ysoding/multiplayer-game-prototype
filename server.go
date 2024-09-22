@@ -71,7 +71,7 @@ func tick() {
 	previousTime := time.Now()
 	for {
 		startTime := time.Now()
-		deltaTimeSeconds := startTime.Sub(previousTime).Seconds()
+		deltaTime := startTime.Sub(previousTime)
 		previousTime = startTime
 
 		mu.RLock()
@@ -157,7 +157,7 @@ func tick() {
 
 		// update player state
 		for _, player := range players {
-			go player.update(deltaTimeSeconds)
+			go player.update(deltaTime.Seconds())
 		}
 		mu.RUnlock()
 
