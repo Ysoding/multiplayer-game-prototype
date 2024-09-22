@@ -188,7 +188,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
 	x := rnd.Float32() * (worldWidth - playerSize)
 	y := rnd.Float32() * (worldHeight - playerSize)
-	hue := uint8(math.Floor(rnd.Float64()*360) / 360 * 256)
+	hue := uint8((math.Floor(rnd.Float64()*360) / 360) * 256)
 
 	player := NewPlayer(conn, remoteAddr, id, x, y, hue)
 
@@ -269,9 +269,13 @@ func (p *PlayerOnServer) update(deltaTime float64) {
 	}
 	l := dx*dx + dy*dy
 	if l != 0 {
-		p.X += float32(float64(dx) / float64(l) * deltaTime * playerSpeed)
-		p.Y += float32(float64(dy) / float64(l) * deltaTime * playerSpeed)
+		p.X = float32(properMod(float64(p.X)+(float64(dx)/float64(l)*deltaTime*playerSpeed), worldWidth))
+		p.Y = float32(properMod(float64(p.Y)+(float64(dy)/float64(l)*deltaTime*playerSpeed), worldHeight))
 	}
+}
+
+func properMod(a float64, b float64) float64 {
+	return math.Mod(math.Mod(a, b)+b, b)
 }
 
 func (p *PlayerOnServer) handleMsg(messageType int, data []byte) {
