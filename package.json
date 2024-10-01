@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
+    "build": "tsc",
     "watch": "node watch.js",
+    "bots": "node bots.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",

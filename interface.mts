@@ -2,6 +2,10 @@ export const UINT8_SIZE = 1;
 export const UINT16_SIZE = 2;
 export const UINT32_SIZE = 4;
 export const FLOAT32_SIZE = 4;
+export const WORLD_WIDTH = 800;
+export const WORLD_HEIGHT = 600;
+export const PLAYER_SIZE = 30;
+export const PLAYER_SPEED = 500;
 
 export enum Direction {
   Left = 0,
@@ -194,4 +198,41 @@ function allocFloat32Field(allocator: { size: number }): Field {
     read: (view) => view.getFloat32(offset, true),
     write: (view, value) => view.setFloat32(offset, value, true),
   };
+}
+
+export type Vector2 = { x: number; y: number };
+export const DIRECTION_VECTORS: Vector2[] = (() => {
+  console.assert(
+    Direction.Count == 4,
+    "The definition of Direction have changed"
+  );
+  const vectors = Array(Direction.Count);
+  vectors[Direction.Left] = { x: -1, y: 0 };
+  vectors[Direction.Right] = { x: 1, y: 0 };
+  vectors[Direction.Up] = { x: 0, y: -1 };
+  vectors[Direction.Down] = { x: 0, y: 1 };
+  return vectors;
+})();
+
+function properMod(a: number, b: number): number {
+  return ((a % b) + b) % b;
+}
+
+export function updatePlayer(player: Player, deltaTime: number) {
+  let dx = 0;
+  let dy = 0;
+  for (let dir = 0; dir < Direction.Count; dir += 1) {
+    if ((player.moving >> dir) & 1) {
+      dx += DIRECTION_VECTORS[dir].x;
+      dy += DIRECTION_VECTORS[dir].y;
+    }
+  }
+  const l = dx * dx + dy * dy;
+  if (l !== 0) {
+    const length = Math.sqrt(l);
+    dx /= length;
+    dy /= length;
+  }
+  player.x = properMod(player.x + dx * PLAYER_SPEED * deltaTime, WORLD_WIDTH);
+  player.y = properMod(player.y + dy * PLAYER_SPEED * deltaTime, WORLD_HEIGHT);
 }
