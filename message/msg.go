@@ -20,6 +20,8 @@ const (
 	PlayersLeftMsg
 	PlayersMovingMsg
 	AmmaMovingMsg
+	PingMsg
+	PongMsg
 )
 
 type MsgType uint8
@@ -192,4 +194,59 @@ func (p *PlayersMovingMsgStruct) Encode() ([]byte, error) {
 
 func (p *PlayersMovingMsgStruct) Decode(data []byte) error {
 	return errors.New("`PlayersMovingMsgStruct` only client msg")
+}
+
+type PingMsgStruct struct {
+	Timestamp uint32
+}
+
+func NewPingMsgStruct(players []Player) Msg {
+	return &PingMsgStruct{}
+}
+
+func (p *PingMsgStruct) Encode() ([]byte, error) {
+	return nil, errors.New("`PingMsgStruct` only client msg")
+}
+
+func (p *PingMsgStruct) Decode(data []byte) error {
+	buf := bytes.NewReader(data)
+
+	var kind uint8
+	err := binary.Read(buf, binary.LittleEndian, &kind)
+	if err != nil {
+		return err
+	}
+
+	if kind != uint8(PingMsg) {
+		return fmt.Errorf("msg type not Ping: %d", kind)
+	}
+
+	err = binary.Read(buf, binary.LittleEndian, &p.Timestamp)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+type PongMsgStruct struct {
+	Timestamp uint32
+}
+
+func NewPongMsgStruct(timestamp uint32) Msg {
+	return &PongMsgStruct{Timestamp: timestamp}
+}
+
+func (p *PongMsgStruct) Encode() ([]byte, error) {
+	buf := new(bytes.Buffer)
+	buf.WriteByte(byte(PongMsg))
+
+	err := binary.Write(buf, binary.LittleEndian, p)
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func (p *PongMsgStruct) Decode(data []byte) error {
+	return errors.New("`PongMsgStruct` only server msg")
 }

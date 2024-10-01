@@ -36,6 +36,7 @@ var players map[uint32]*PlayerOnServer
 var idCounter uint32 = 0
 var joinedIDs map[uint32]struct{}
 var leftIDs map[uint32]struct{}
+var pingIDs map[uint32]uint32
 var mu sync.RWMutex
 var directions [][]int // Left: {x:-1, y: 0}
 
@@ -49,6 +50,7 @@ func init() {
 	players = map[uint32]*PlayerOnServer{}
 	joinedIDs = map[uint32]struct{}{}
 	leftIDs = map[uint32]struct{}{}
+	pingIDs = map[uint32]uint32{}
 
 	directions = make([][]int, directionCount)
 	directions[Left] = []int{-1, 0}
@@ -162,11 +164,20 @@ func tick() {
 		for _, player := range players {
 			player.update(float64(deltaTime.Milliseconds()) / 1000)
 		}
+
+		// send ping
+		for id, ping := range pingIDs {
+			if player, ok := players[id]; ok {
+				msg := message.NewPongMsgStruct(ping)
+				player.sendMsg(msg)
+			}
+		}
 		mu.RUnlock()
 
 		mu.Lock()
 		joinedIDs = map[uint32]struct{}{}
 		leftIDs = map[uint32]struct{}{}
+		pingIDs = map[uint32]uint32{}
 		mu.Unlock()
 
 		tickTime := time.Since(startTime)
@@ -261,9 +272,6 @@ func (p *PlayerOnServer) sendMsg(msg message.Msg) {
 	p.sendMsgWithData(bytes)
 }
 
-// 通过累加方向上的变化量来更新玩家的位置。通过计算并归一化方向向量，确保玩家在多个方向同时移动时，不会因为累加的方向影响到移动的速度（归一化确保移动速度一致）。
-// 归一化：归一化方向向量的作用是确保无论玩家同时移动几个方向（例如斜方向），玩家的移动速度始终保持一致。
-// 坐标更新：最后，结合玩家速度和帧时间，计算出新的位置，并使用 properMod 确保位置值不超出游戏世界的边界。
 func (p *PlayerOnServer) update(deltaTime float64) {
 	dx := 0.0
 	dy := 0.0
@@ -296,14 +304,17 @@ func (p *PlayerOnServer) handleMsg(messageType int, data []byte) {
 		return
 	}
 
-	msg := message.AmmaMovingMsgStruct{}
-	if err := msg.Decode(data); err == nil {
+	ammaMovingMsg := message.AmmaMovingMsgStruct{}
+	pingMsg := message.PingMsgStruct{}
+	if err := ammaMovingMsg.Decode(data); err == nil {
 		// log.Printf("processing AmmaMovingMsg: %v\n", msg)
-		if msg.Start == 1 {
-			p.newMoving |= (1 << msg.Direction)
+		if ammaMovingMsg.Start == 1 {
+			p.newMoving |= (1 << ammaMovingMsg.Direction)
 		} else {
-			p.newMoving &= ^(1 << msg.Direction)
+			p.newMoving &= ^(1 << ammaMovingMsg.Direction)
 		}
+	} else if err := pingMsg.Decode(data); err == nil {
+		pingIDs[p.ID] = pingMsg.Timestamp
 	} else {
 		fmt.Printf("received bogus-amogus message from player %d\n", p.ID)
 		p.conn.Close()

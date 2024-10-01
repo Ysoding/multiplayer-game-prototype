@@ -3,11 +3,13 @@ import {
   Direction,
   HelloStruct,
   MessageKind,
+  PingStruct,
   Player,
   PlayersJoinedHeaderStruct,
   PlayersLeftHeaderStruct,
   PlayersMovingHeaderStruct,
   PlayerStruct,
+  PongStruct,
 } from "./interface.mjs";
 
 const WORLD_WIDTH = 800;
@@ -44,6 +46,7 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
 
   let players = new Map<number, Player>();
   let me: Player | undefined = undefined;
+  let ping = 0;
 
   ws.addEventListener("close", (event) => {
     console.log("WEBSOCKET CLOSE", event);
@@ -137,6 +140,8 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
           player.x = PlayerStruct.x.read(playerView);
           player.y = PlayerStruct.y.read(playerView);
         }
+      } else if (PongStruct.verify(view)) {
+        ping = performance.now() - PongStruct.timestamp.read(view);
       } else {
         console.error("Received bogus-amogus message from server.", view);
         ws?.close();
@@ -150,6 +155,8 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
 
   let previousTimestamp = 0;
 
+  const PING_COOLDOWN = 60;
+  let pingCooldown = PING_COOLDOWN;
   const frame = (timestamp: number) => {
     const deltaTime = (timestamp - previousTimestamp) / 1000;
     previousTimestamp = timestamp;
@@ -187,6 +194,21 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
         ctx.beginPath();
         ctx.strokeRect(me.x, me.y, PLAYER_SIZE, PLAYER_SIZE);
         ctx.stroke();
+      }
+
+      // ping
+      ctx.font = "18px bold";
+      ctx.fillStyle = "white";
+      const padding = ctx.canvas.width * 0.05;
+      ctx.fillText(`Ping: ${ping.toFixed(2)}ms`, padding, padding);
+
+      pingCooldown -= 1;
+      if (pingCooldown <= 0) {
+        const view = new DataView(new ArrayBuffer(PingStruct.size));
+        PingStruct.kind.write(view, MessageKind.Ping);
+        PingStruct.timestamp.write(view, performance.now());
+        ws.send(view);
+        pingCooldown = PING_COOLDOWN;
       }
     }
 

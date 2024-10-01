@@ -17,6 +17,8 @@ export enum MessageKind {
   PlayersLeft,
   PlayersMoving,
   AmmaMoving,
+  Ping,
+  Pong,
 }
 
 export interface Player {
@@ -118,6 +120,24 @@ export const PlayersMovingHeaderStruct = (() => {
     kind.read(view) == MessageKind.PlayersMoving;
   const count = (view: DataView) => (view.byteLength - size) / itemSize;
   return { kind, size, verify, count };
+})();
+
+export const PingStruct = (() => {
+  const allocator = { size: 0 };
+  const kind = allocUint8Field(allocator);
+  const timestamp = allocUint32Field(allocator);
+  const size = allocator.size;
+  const verify = verifier(kind, MessageKind.Ping, size);
+  return { kind, timestamp, size, verify };
+})();
+
+export const PongStruct = (() => {
+  const allocator = { size: 0 };
+  const kind = allocUint8Field(allocator);
+  const timestamp = allocUint32Field(allocator);
+  const size = allocator.size;
+  const verify = verifier(kind, MessageKind.Pong, size);
+  return { kind, timestamp, size, verify };
 })();
 
 function verifier(
