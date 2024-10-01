@@ -23,13 +23,13 @@ const (
 )
 
 const (
-	directionCount = 4
-	worldWidth     = 800
-	worldHeight    = 600
-	playerSpeed    = 500
-	playerSize     = 30
-	serverFPS      = 60
-	timeInterval   = time.Second / serverFPS
+	directionCount    = 4
+	worldWidth        = 800
+	worldHeight       = 600
+	playerSpeed       = 500
+	playerSize        = 30
+	serverFPS         = 60
+	sleepTimeInterval = time.Second / serverFPS
 )
 
 var players map[uint32]*PlayerOnServer
@@ -75,22 +75,25 @@ func tick() {
 		previousTime = startTime
 
 		mu.RLock()
-		// initialize joined player
 		if len(joinedIDs) > 0 {
-			tmpPlayers := make([]message.Player, 0, len(players))
-			for _, player := range players {
-				tmpPlayers = append(tmpPlayers, player.Player)
-			}
-			playersJoinedMsg := message.NewPlayersJoinedMsgStruct(tmpPlayers)
-
-			for id := range joinedIDs {
-				joinedPlayer, ok := players[id]
-				if !ok {
-					continue
+			// initialize joined player
+			{
+				tmpPlayers := make([]message.Player, 0, len(players))
+				for _, player := range players {
+					tmpPlayers = append(tmpPlayers, player.Player)
 				}
-				helloMsg := message.NewHelloMsgStruct(joinedPlayer.ID, joinedPlayer.X, joinedPlayer.Y, joinedPlayer.Hue)
-				joinedPlayer.sendMsg(helloMsg)
-				joinedPlayer.sendMsg(playersJoinedMsg)
+				playersJoinedMsg := message.NewPlayersJoinedMsgStruct(tmpPlayers)
+
+				for id := range joinedIDs {
+					joinedPlayer, ok := players[id]
+					if !ok {
+						continue
+					}
+					helloMsg := message.NewHelloMsgStruct(joinedPlayer.ID, joinedPlayer.X, joinedPlayer.Y, joinedPlayer.Hue)
+					joinedPlayer.sendMsg(helloMsg)
+					// Reconstructing the state of the other players
+					joinedPlayer.sendMsg(playersJoinedMsg)
+				}
 			}
 
 			// notifying old player about who joined
@@ -157,7 +160,7 @@ func tick() {
 
 		// update player state
 		for _, player := range players {
-			go player.update(deltaTime.Seconds())
+			player.update(float64(deltaTime.Milliseconds()) / 1000)
 		}
 		mu.RUnlock()
 
@@ -166,10 +169,10 @@ func tick() {
 		leftIDs = map[uint32]struct{}{}
 		mu.Unlock()
 
-		elapsed := time.Since(startTime)
-		sleepDuration := timeInterval - elapsed
-		if sleepDuration > 0 {
-			time.Sleep(sleepDuration)
+		tickTime := time.Since(startTime)
+		sleepTime := sleepTimeInterval - tickTime
+		if sleepTime > 0 {
+			time.Sleep(sleepTime)
 		}
 	}
 }
@@ -258,20 +261,29 @@ func (p *PlayerOnServer) sendMsg(msg message.Msg) {
 	p.sendMsgWithData(bytes)
 }
 
+// 通过累加方向上的变化量来更新玩家的位置。通过计算并归一化方向向量，确保玩家在多个方向同时移动时，不会因为累加的方向影响到移动的速度（归一化确保移动速度一致）。
+// 归一化：归一化方向向量的作用是确保无论玩家同时移动几个方向（例如斜方向），玩家的移动速度始终保持一致。
+// 坐标更新：最后，结合玩家速度和帧时间，计算出新的位置，并使用 properMod 确保位置值不超出游戏世界的边界。
 func (p *PlayerOnServer) update(deltaTime float64) {
-	dx := 0
-	dy := 0
+	dx := 0.0
+	dy := 0.0
 	for dir := 0; dir < directionCount; dir++ {
 		if ((p.Moving >> dir) & 1) != 0 {
-			dx += directions[dir][0]
-			dy += directions[dir][1]
+			dx += float64(directions[dir][0])
+			dy += float64(directions[dir][1])
 		}
 	}
+
 	l := dx*dx + dy*dy
+
 	if l != 0 {
-		p.X = float32(properMod(float64(p.X)+(float64(dx)/float64(l)*deltaTime*playerSpeed), worldWidth))
-		p.Y = float32(properMod(float64(p.Y)+(float64(dy)/float64(l)*deltaTime*playerSpeed), worldHeight))
+		length := math.Sqrt(l)
+		dx /= length
+		dy /= length
 	}
+
+	p.X = float32(properMod(float64(p.X)+dx*playerSpeed*deltaTime, worldWidth))
+	p.Y = float32(properMod(float64(p.Y)+dy*playerSpeed*deltaTime, worldHeight))
 }
 
 func properMod(a float64, b float64) float64 {
@@ -286,7 +298,7 @@ func (p *PlayerOnServer) handleMsg(messageType int, data []byte) {
 
 	msg := message.AmmaMovingMsgStruct{}
 	if err := msg.Decode(data); err == nil {
-		log.Printf("processing AmmaMovingMsg: %v\n", msg)
+		// log.Printf("processing AmmaMovingMsg: %v\n", msg)
 		if msg.Start == 1 {
 			p.newMoving |= (1 << msg.Direction)
 		} else {

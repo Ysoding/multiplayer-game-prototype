@@ -13,6 +13,7 @@ import {
 const WORLD_WIDTH = 800;
 const WORLD_HEIGHT = 600;
 const PLAYER_SIZE = 30;
+const PLAYER_SPEED = 500;
 
 const DIRECTION_KEYS: { [key: string]: Direction } = {
   ArrowLeft: Direction.Left,
@@ -55,7 +56,7 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
   });
 
   ws.addEventListener("message", (event) => {
-    console.log("Received message", event);
+    // console.log("Received message", event);
     if (!(event.data instanceof ArrayBuffer)) {
       console.error(
         "Received bogus-amogus message from server. Expected binary data",
@@ -88,7 +89,7 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
         for (let i = 0; i < count; i++) {
           const playerView = new DataView(
             event.data,
-            PlayersJoinedHeaderStruct.headerSize + i * PlayerStruct.size,
+            PlayersJoinedHeaderStruct.size + i * PlayerStruct.size,
             PlayerStruct.size
           );
           const id = PlayerStruct.id.read(playerView);
@@ -119,7 +120,7 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
         for (let i = 0; i < count; i++) {
           const playerView = new DataView(
             event.data,
-            PlayersMovingHeaderStruct.headerSize + i * PlayerStruct.size,
+            PlayersMovingHeaderStruct.size + i * PlayerStruct.size,
             PlayerStruct.size
           );
           const id = PlayerStruct.id.read(playerView);
@@ -157,7 +158,6 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
     if (ws === undefined) {
-      console.log("disconnect");
       const label = "Disconnected";
       const textSize = ctx.measureText(label);
       ctx.font = "48px bold";
@@ -172,11 +172,13 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
         if (me === undefined || me.id == player.id) {
           return;
         }
+        updatePlayer(player, deltaTime);
         ctx.fillStyle = `hsl(${player.hue} 70% 40%)`;
         ctx.fillRect(player.x, player.y, PLAYER_SIZE, PLAYER_SIZE);
       });
 
       if (me !== undefined) {
+        updatePlayer(me, deltaTime);
         ctx.fillStyle = `hsl(${me.hue} 100% 40%)`;
         ctx.fillRect(me.x, me.y, PLAYER_SIZE, PLAYER_SIZE);
 
@@ -205,7 +207,6 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
           AmmaMovingStruct.kind.write(view, MessageKind.AmmaMoving);
           AmmaMovingStruct.direction.write(view, direction);
           AmmaMovingStruct.start.write(view, 1);
-          console.log(view.buffer);
           ws.send(view.buffer);
         }
       }
@@ -221,10 +222,46 @@ const DIRECTION_KEYS: { [key: string]: Direction } = {
           AmmaMovingStruct.kind.write(view, MessageKind.AmmaMoving);
           AmmaMovingStruct.direction.write(view, direction);
           AmmaMovingStruct.start.write(view, 0);
-          console.log(view);
           ws.send(view.buffer);
         }
       }
     }
   });
 })();
+
+type Vector2 = { x: number; y: number };
+const DIRECTION_VECTORS: Vector2[] = (() => {
+  console.assert(
+    Direction.Count == 4,
+    "The definition of Direction have changed"
+  );
+  const vectors = Array(Direction.Count);
+  vectors[Direction.Left] = { x: -1, y: 0 };
+  vectors[Direction.Right] = { x: 1, y: 0 };
+  vectors[Direction.Up] = { x: 0, y: -1 };
+  vectors[Direction.Down] = { x: 0, y: 1 };
+  return vectors;
+})();
+
+function properMod(a: number, b: number): number {
+  return ((a % b) + b) % b;
+}
+
+function updatePlayer(player: Player, deltaTime: number) {
+  let dx = 0;
+  let dy = 0;
+  for (let dir = 0; dir < Direction.Count; dir += 1) {
+    if ((player.moving >> dir) & 1) {
+      dx += DIRECTION_VECTORS[dir].x;
+      dy += DIRECTION_VECTORS[dir].y;
+    }
+  }
+  const l = dx * dx + dy * dy;
+  if (l !== 0) {
+    const length = Math.sqrt(l);
+    dx /= length;
+    dy /= length;
+  }
+  player.x = properMod(player.x + dx * PLAYER_SPEED * deltaTime, WORLD_WIDTH);
+  player.y = properMod(player.y + dy * PLAYER_SPEED * deltaTime, WORLD_HEIGHT);
+}
